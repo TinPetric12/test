@@ -1,0 +1,320 @@
+from mpi4py import MPI
+from random import random
+import numpy as np
+import sys
+
+
+def evaluate(board, iLastCol, LastMover, iDepth):
+    Current = Game(board, 0, 0)
+    bAllWin = True
+    bAllLose = True
+
+    # checking whether current player is won or not
+    if Current.is_player_win(iLastCol, LastMover):
+        if LastMover == 'O':
+            return 1
+        else:
+            return -1
+    if iDepth == 0:
+        return 0
+    iDepth -= 1
+    if LastMover == 'O':
+        NewMover = 'X'
+    else:
+        NewMover = 'O'
+    dTotal = 0
+    iMoves = 0
+    for iCol in range(Current.columns):
+        if Current.board[0][iCol] == '-':
+            iMoves += 1
+            Current.move(iCol, NewMover)
+            dResult = evaluate(Current.board, iCol, NewMover, iDepth)
+            Current.undo_move(iCol)
+            if dResult > -1:
+                bAllLose = False
+            if dResult != -1:
+                bAllWin = False
+            if dResult == 1 and NewMover == 'O':
+                return 1
+            if dResult == -1 and NewMover == 'X':
+                return -1
+            dTotal += dResult
+    if bAllWin:
+        return 1
+    if bAllLose:
+        return -1
+    dTotal /= iMoves
+    return dTotal
+
+
+def inverse(num):
+    if num == 0:
+        return 6
+    elif num == 1:
+        return 5
+    elif num == 2:
+        return 4
+    elif num == 3:
+        return 3
+    elif num == 4:
+        return 2
+    elif num == 5:
+        return 1
+    elif num == 6:
+        return 0
+
+
+def four_in_line(lista, player):
+    result = False
+    counter = 0
+    for x in lista:
+        if x == player:
+            counter += 1
+            if counter == 4:
+                result = True
+        else:
+            counter = 0
+    return result
+
+
+class Node(object):
+    def __init__(self, move, board):
+        self.value = 0
+        self.parent = 0
+        self.move = move
+        self.board = board
+        self.children = []
+
+    def add_child(self, obj):
+        obj.parent = self.move
+        self.children.append(obj)
+
+    def sum(self):
+        for child in self.children:
+            self.value += child.value
+        return self.value / 7
+
+
+class Game:
+    def __init__(self, board, size, rank):
+        self.board = board
+        self.rows = 7
+        self.columns = 7
+
+        self.size = size
+        self.rank = rank
+
+    def create_board(self):
+        for i in range(self.rows):
+            row = []
+            for j in range(self.columns):
+                row.append('-')
+            self.board.append(row)
+
+    def move(self, col, player):
+        for row in range(self.rows - 1, -1, -1):
+            if self.board[row][col] == '-':
+                self.board[row][col] = player
+                return row + 1
+        return -1
+
+    def undo_move(self, col):
+        for row in range(self.rows):
+            if self.board[row][col] != '-':
+                self.board[row][col] = '-'
+                break
+
+    def is_player_win(self, col, player):
+        # checking row
+        row = self.rows - 1
+        for x in range(self.rows):
+            if self.board[x][col] != '-':
+                row = x
+                break
+        lista = []
+        for x in range(self.rows):
+            lista.append(self.board[row][x])
+        if four_in_line(lista, player):
+            return True
+
+        # checking column
+        lista = []
+        for x in range(self.columns):
+            lista.append(self.board[x][col])
+        if four_in_line(lista, player):
+            return True
+
+        # checking diagonal
+        arr = np.array(self.board)
+        lista = np.diagonal(arr, offset=col - row)
+        if four_in_line(lista, player):
+            return True
+
+        # checking inverse diagonal
+        lista = np.fliplr(arr).diagonal(offset=inverse(col) - row)
+        if four_in_line(lista, player):
+            return True
+
+        return False
+
+    def is_board_filled(self):
+        for row in self.board:
+            for item in row:
+                if item == '-':
+                    return False
+        return True
+
+    def swap_player_turn(self, player):
+        return 'X' if player == 'O' else 'O'
+
+    def show_board(self):
+        for row in self.board:
+            for item in row:
+                print(item, end=" ", flush=True)
+            print(flush=True)
+
+    def start(self):
+        if len(sys.argv) > 1:
+            iDepth = int(sys.argv[1])
+        else:
+            iDepth = 6
+
+        if rank == 0:
+            self.create_board()
+
+            player = 'X'
+
+            while True:
+                print(f"Player {player} turn", flush=True)
+
+                self.show_board()
+
+                if player == 'O':
+                    dWorst = 1
+                    dBest = -1
+                    iBestCol = -1
+                    for col in range(self.columns):
+                        if self.board[0][col] == '-':
+                            if iBestCol == -1:
+                                iBestCol = col
+                            self.move(col, player)
+                            dResult = evaluate(self.board, col, player, 1)
+                            self.undo_move(col)
+                            if dResult > dBest or (dResult == dBest and random() % 2 == 0):
+                                dBest = dResult
+                                iBestCol = col
+                            if dResult == -1:
+                                dWorst = -1
+
+                    if dWorst == -1 or dBest == -1 or dBest == 1 or size == 1:
+                        dBest = -1
+                        iBestCol = -1
+                        for col in range(self.columns):
+                            if self.board[0][col] == '-':
+                                if iBestCol == -1:
+                                    iBestCol = col
+                                self.move(col, player)
+                                dResult = evaluate(self.board, col, player, iDepth - 1)
+                                self.undo_move(col)
+                                if dResult > dBest or (dResult == dBest and random() % 2 == 0):
+                                    dBest = dResult
+                                    iBestCol = col
+                                print("Stupac " + str(col + 1) + ", vrijednost: " + str(dResult))
+                        print("Najbolji: " + str(iBestCol + 1) + ", vrijednost: " + str(dBest))
+                        self.move(iBestCol, player)
+                    else:
+                        index = 0
+                        counter = 0
+                        root = Node(0, self.board)
+                        for i in range(self.columns):
+                            self.move(i, player)
+                            player = self.swap_player_turn(player)
+                            root.add_child(Node(i, self.board))
+                            for j in range(self.columns):
+                                counter += 1
+                                self.move(j, player)
+                                node = Node(j, self.board)
+                                root.children[i].add_child(node)
+                                index = index + 1
+                                comm.send(node, dest=index)
+                                if index >= size - 1:
+                                    index = 0
+                                self.undo_move(j)
+                            player = self.swap_player_turn(player)
+                            self.undo_move(i)
+
+                        while counter > 0:
+                            message = comm.recv(source=MPI.ANY_SOURCE)
+                            root.children[message.parent].children[message.move].value = message.value
+                            counter -= 1
+
+                        dBest = -1
+                        iBestCol = -1
+                        for col in range(self.columns):
+                            if self.board[0][col] == '-':
+                                if iBestCol == -1:
+                                    iBestCol = col
+                                dResult = root.children[col].sum()
+                                if dResult > dBest or (dResult == dBest and random() % 2 == 0):
+                                    dBest = dResult
+                                    iBestCol = col
+                                print("Stupac " + str(col + 1) + ", vrijednost: " + str(dResult), flush=True)
+                        print("Najbolji: " + str(iBestCol + 1) + ", vrijednost: " + str(dBest), flush=True)
+                        self.move(iBestCol, player)
+                else:
+                    # taking user input
+                    while True:
+                        try:
+                            col = int(input("Enter column number: "))
+                            if col < 1 or col > 7:
+                                raise ValueError
+                            # move
+                            row = self.move(col - 1, player)
+                            if row == -1:
+                                raise ValueError
+                            iBestCol = col - 1
+                            break
+
+                        except ValueError:
+                            print("Enter valid int value [1-7]")
+
+                # checking whether current player is won or not
+                if self.is_player_win(iBestCol, player):
+                    print(f"Player {player} wins the game!")
+                    for i in range(1, size):
+                        comm.send("KILL", dest=i, tag=666)
+                    break
+
+                # checking whether the game is draw or not
+                if self.is_board_filled():
+                    print("Match Draw!")
+                    for i in range(1, size):
+                        comm.send("KILL", dest=i, tag=666)
+                    break
+
+                # swapping the turn
+                player = self.swap_player_turn(player)
+
+            # showing the final view of board
+            print()
+            self.show_board()
+        else:
+            while True:
+                status = MPI.Status()
+                message = comm.recv(source=0, status=status)
+
+                tag = status.Get_tag()
+                if tag == 666:
+                    sys.exit(0)
+
+                message.value = evaluate(message.board, message.move, 'X', iDepth - 1)
+                comm.send(message, dest=0)
+
+
+comm = MPI.COMM_WORLD
+size = comm.Get_size()
+rank = comm.Get_rank()
+
+# starting the game
+game = Game([], size, rank)
+game.start()
